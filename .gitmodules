@@ -1,0 +1,6 @@
+[submodule "ascend-ci-deployment"]
+	path = ascend-ci-deployment
+	url = https://github.com/opensourceways/ascend-ci-deployment.git
+[submodule "ascend-ci-argocd"]
+	path = ascend-ci-argocd
+	url = https://github.com/opensourceways/ascend-ci-argocd.git
