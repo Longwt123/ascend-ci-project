@@ -1,0 +1,354 @@
+# Ascend-Ci-Project — Meta Repository for Ascend CI Platform
+
+## Overview
+
+This is a **git superproject** (meta-repo) that aggregates the entire Ascend CI platform into a single cloneable unit. It contains **no application code** — it exists solely as a convenience layer to clone all platform components via `git clone --recurse-submodules`.
+
+The platform provides **self-hosted GitHub Actions runners on Ascend NPU hardware** for open-source AI/ML projects. It enables projects like vLLM, SGLang, Triton, and PyTorch to run their CI workflows on Huawei Ascend 910B/C and 310P NPU chips.
+
+**GitHub Organization:** `opensourceways`
+**Contact:** `ascendinfra@huawei.com`
+
+---
+
+## Architecture (Bird's-Eye View)
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                    Ascend-Ci-Project (this repo)                  │
+│                    Meta-repo, .gitmodules only                    │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────────────────┐  ┌──────────────────────────────────┐  │
+│  │ ascend-ci-argocd    │  │ ascend-ci-deployment              │  │
+│  │ ArgoCD Applications │  │ K8s Manifests + Helm Charts       │  │
+│  │ (What + Where)      │  │ (The actual deployment config)    │  │
+│  └────────┬────────────┘  └──────────────┬───────────────────┘  │
+│           │                              │                       │
+│           │  GitOps: ArgoCD watches      │                       │
+│           │  these repos, syncs to ──────┤                       │
+│           │  K8s clusters               │                       │
+│           │                              │                       │
+│  ┌────────┴──────────────────────────────┴───────────────────┐  │
+│  │ ascend-runner-onboarding                                   │  │
+│  │ Go service: GitHub App → auto-generates configs in both    │  │
+│  │ argocd + deployment repos, creates PRs                     │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ docs                                                       │  │
+│  │ MkDocs site: user manuals (GH Actions + Buildkite, EN+ZH)  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow (Onboarding a New Project)
+
+```
+1. User installs GitHub App "ascend-runner-mgmt"
+2. Webhook → ascend-runner-onboarding (Go service)
+3. Service writes installation_id to HashiCorp Vault
+4. Service clones ascend-ci-deployment, copies reference project,
+   applies field replacements → git push + PR
+5. Service generates ArgoCD Application manifests → git push + PR
+6. PR Poller waits for merge
+7. On merge: ArgoCD syncs → ARC creates RunnerScaleSet pods
+8. User adds `runs-on: linux-aarch64-a3-2` to their workflow
+```
+
+---
+
+## Submodule Reference
+
+### 1. `ascend-ci-deployment` — K8s Infrastructure as Code
+
+**Repo:** `https://github.com/opensourceways/ascend-ci-deployment.git`
+
+**Purpose:** Contains all Kubernetes manifests, Helm chart values, and Kustomize overlays for deploying GitHub Actions Runner Controller (ARC) and supporting infrastructure across ~12 Ascend NPU clusters.
+
+**Key Technologies:**
+- **Helm v3** — `gha-runner-scale-set` chart (ARC v0.12.0)
+- **Kustomize** — Kubernetes native config composition for per-cluster overlays
+- **ArgoCD** (GitOps consumer) — watches this repo's main branch, auto-syncs to clusters
+- **Vault Agent Injector** — dynamic secret/cert injection via `SecretDefinition` CRD
+- **Prometheus + kube-prometheus-stack** — monitoring (remote-write to central Prometheus)
+
+**Directory Convention:**
+```
+{ORG-OR-USER}/
+  {REPOSITORY}/
+    config/                          # Kustomize: namespace, secrets, PVC, RBAC, configmaps
+      kustomization.yaml
+      namespace.yaml
+      github-token-secret.yaml       # Vault-backed SecretDefinition
+      local-storage-pvc.yaml          # Shared storage (SFS Turbo or local hostPath)
+      runner-pod-permission.yaml      # ServiceAccount + Role + RoleBinding
+      pre-execute-script-check-npu-configmap.yaml
+      container-job-pod-template-npu-{N}-configmap.yaml
+      custom-runner-container-hook-pvc.yaml
+    config-{REGION}/                  # Region-specific config overlays (e.g., config-hk001)
+    linux-{ARCH}-{NPU_TYPE}-{COUNT}/  # Helm chart per runner scale-set spec
+      Chart.yaml                      # References gha-runner-scale-set as dependency
+      Chart.lock
+      values.yaml                     # githubConfigUrl, secret, pod templates, metrics
+```
+
+**NPU Types Supported:**
+| Label Prefix | Hardware | Sizes |
+|---|---|---|
+| `linux-arm64-npu` | Legacy NPU | 0, 1, 2, 4, 8 |
+| `linux-aarch64-a2` | Ascend 910B (A2) | 0, 1, 2, 4, 8 |
+| `linux-aarch64-a3` | Ascend 910C (A3) | 0, 2, 4, 8, 16 |
+| `linux-aarch64-310p` | Ascend 310P | 1, 2, 4 |
+| `linux-aarch64-910c` | Ascend 910C | 0, 2, 4, 8, 16 |
+| `linux-arm64-cpu` | CPU-only | 1, 4, 8, 16, 24 |
+
+**Clusters (~12):** `guiyang-003/004/005/006`, `hk-001`, `cn12-001`, `hb-003`, `hd-001`, `hidevlab-k8s`, `verl-suzhou`, `infra-cn4-x86-common-cluster`, `karmada-test`
+
+**Projects Hosted (~20):** vllm-project/vllm-ascend, sgl-project/sglang, triton-lang/triton-ascend, tile-ai/tilelang-ascend, volcengine/verl, modelscope/ms-swift, hiyouga/LLaMA-Factory, Ascend/Ascend-CI, pytorch-fdn, linkedin/liger-kernel, alibaba/ROLL, and more.
+
+**Storage Patterns:**
+- **SFS Turbo** (Huawei cloud): `csi-sfsturbo` storage class, `ReadWriteMany`, shared across pods
+- **Local:** `hostPath` for bare-metal physical disks
+- **Ephemeral:** `csi-disk` for temporary runner work directories
+
+**Claude Code Skills (within this submodule):**
+- `arc-deploy` — generates namespace.yaml, secret, PVC, configmap, kustomization, Helm values from JSON config templates
+
+**Branch Protection Rules:** See `AGENTS.md` in submodule — all changes must go through PRs, mandatory CI checks, CODEOWNERS review.
+
+---
+
+### 2. `ascend-ci-argocd` — ArgoCD Application Manifests
+
+**Repo:** `https://github.com/opensourceways/ascend-ci-argocd.git`
+
+**Purpose:** Stores ArgoCD `Application` CRDs that define GitOps deployment targets. This is the **"what deploys where"** layer — each Application YAML tells ArgoCD which source repo path to sync to which cluster namespace.
+
+**Two-layer pattern:**
+
+**Layer 1 — Infrastructure Apps** (point back to this repo):
+```
+applications/argocd/{component}.yaml          # Application CRD
+applications/deploy/{component}/              # Actual Helm/Kustomize resources
+```
+Infrastructure components: `nginx-pypi-cache`, `vault`, `secret-manager`, `imagepullsecret-patch`, `scheduler-plugins`, `npu-exporter`, `prometheus`, `volcano-queue`, `buildkitd-server`, `smart-git-proxy`, `lws`, `argus`
+
+**Layer 2 — CI Runner Apps** (point to ascend-ci-deployment):
+```
+applications/argocd/{cluster}/
+  {org}-{repo}-config-for-{cluster}.yaml     # Kustomize Application (config/)
+  {org}-{repo}-{runner-spec}.yaml            # Helm Application (runner scale-set)
+```
+
+**Standard Application YAML template:**
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {app-name}
+  namespace: argocd
+spec:
+  destination:
+    namespace: {k8s-namespace}
+    name: {cluster-name}          # or 'in-cluster' for local clusters
+  project: {project-name}
+  source:
+    path: {org}/{repo}/{subdir}
+    repoURL: https://github.com/opensourceways/ascend-ci-deployment.git
+    targetRevision: HEAD
+    helm:                          # Only for runner type
+      releaseName: {short-name}
+  syncPolicy:
+    automated:
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+```
+
+**Naming Convention:** `{org-lower}-{repo-lower}-{descriptor}` (e.g., `vllm-project-vllm-ascend-linux-aarch64-a3-2`)
+
+**ARC Controller applications:** Found in `applications/argocd-controller/` — deploy the ARC controller itself (v0.13.0, v0.13.1, v0.14.2) using `ServerSideApply=true`
+
+**Clusters Managed (~20 directories):** gy-003 through gy-007, hk-001, hk-ci, cn12-001, hb-003, hb-003-verl, hd-001, hidevlab-k8s, verl-suzhou, ascend-karmada-test, plus infra clusters.
+
+**Claude Code Skills (within this submodule):**
+- `app-argocd-onboarding` — generates new ArgoCD Application YAML files for onboarding projects
+- `argocd-arc-app` — generates arc-controller, config, and runner Application manifests from JSON config
+
+---
+
+### 3. `ascend-runner-onboarding` — Provisioning Gateway (Go)
+
+**Repo:** `https://github.com/opensourceways/ascend-runner-onboarding.git`
+
+**Purpose:** A Go HTTP service that automates the end-to-end onboarding process when a user installs the `ascend-runner-mgmt` GitHub App. Transforms what was previously a manual ops ticket into a self-service, click-to-provision workflow.
+
+**Key Technologies:**
+- **Go 1.25** — all application code
+- **go-chi/chi** — HTTP router
+- **go-github/v66** — GitHub API client
+- **Redis Stream** (optional) — multi-instance HA via consumer groups, XREADGROUP, XAUTOCLAIM
+- **PostgreSQL / SQLite** — dual-driver installation store
+- **HashiCorp Vault** — KV v2 store for GitHub App installation IDs
+- **Docker** — distroless/static-debian12:nonroot runtime
+
+**Architecture Invariants (critical for making changes):**
+1. **Vault writes MUST happen before git pushes** — If reversed, ArgoCD could sync a `SecretDefinition` pointing to a non-existent Vault key
+2. `DeriveNaming()` in `internal/arcdeploy/render.go` is the **single source of truth** for org/repo → namespace/dir/URL naming
+3. `Provisioner` is an interface with two implementations: `DryRun` (local testing) and `GitOps` (real git push + PR)
+4. Reference projects ARE the templates — copy + 4-5 string replacements, no template engine
+5. Allowlist is YAML file with `mtime`-based hot reload; parse errors log ERROR but keep last-good memory snapshot
+
+**Directory Layout:**
+```
+cmd/server/main.go              # Entry point: wiring, routing, graceful shutdown
+cmd/deprovision/main.go         # CLI for manual deprovisioning
+internal/
+  allowlist/                    # YAML allowlist, mtime hot-reload, NPU type resolution
+  arcdeploy/                    # Core provisioning engine
+    render.go                   # DeriveNaming, BuildReplacements, DetectOldValues, GenerateAppSecret
+    gitops.go                   # GitOps provisioner: clone, replace, commit, push, create PR
+    argocd.go                   # ArgoCD Application YAML generation
+    dryrun.go                   # Dry-run implementation for local testing
+    migrate.go                  # PAT → GitHub App secret migration
+    pr_creator.go / pat_pr_creator.go  # PR creation strategies
+    conflict.go                 # Namespace/directory conflict detection
+  installation/                 # Business logic + state machine
+    model.go                    # Record struct, Status constants (8 states)
+    service.go                  # HandleCreated/Deleted/Suspended/Unsuspended/ReposUpdated/RecoverProvisioning
+    pr_poller.go                # PR status polling (every 10 min)
+    store.go                    # PostgreSQL + SQLite dual-driver with auto-schema
+  queue/                        # Job queue: in-memory channel + Redis Stream
+  worker/                       # Queue consumer goroutine
+  vaultclient/                  # Minimal Vault HTTP client (AppRole login, KV v2 PATCH)
+  githubapp/                    # JWT auth, HMAC-SHA256 webhook verification
+  handler/                      # HTTP handlers: webhook, pages, cluster_status, rate limiting
+  clusterprobe/                 # Optional NPU usage monitoring via K8s API + Prometheus
+  config/                       # Env var loading + validation (~40 config vars)
+config/reference-projects.yaml  # NPU type definitions, 12 clusters, vault config
+web/templates/                  # Landing + setup HTML pages
+deploy/Dockerfile               # Multi-stage distroless build
+```
+
+**State Machine (8 states):**
+```
+new → pending (not on allowlist)
+new → provisioning → pr_pending → provisioned
+                   → failed
+                   → suspended (app paused)
+                   → deleted (uninstalled)
+```
+
+**Queue Modes:**
+- **Single-instance:** In-memory channel (capacity 100), `sync.Mutex` for git push serialization
+- **Multi-instance HA:** Redis Stream + Consumer Group, `XAUTOCLAIM` for dead consumer recovery (5min idle), at-least-once delivery
+- Toggle: set `REDIS_URL` env var to enable Redis mode
+
+**CI/CD:**
+- `ci.yml`: lint (`golangci-lint`) + build + test (`-race -count=1`)
+- `release.yml`: Build Docker image → push to `swr.cn-north-4.myhuaweicloud.com/opensourceways/ascend-runner-onboarding`
+- Release managed via `opensourceways/release-mgmt` issue-based flow
+
+---
+
+### 4. `docs` — User Documentation Site
+
+**Repo:** `https://github.com/ascend-gha-runners/docs.git`
+
+**Purpose:** MkDocs-based documentation site for end users who want to integrate their open-source projects with Ascend NPU runners.
+
+**Published Site:** `https://ascend-gha-runners.github.io/docs/`
+
+**Key Technologies:**
+- **MkDocs + Material theme** — static site generator
+- **Python 3** — CI cache audit automation (`update_repo_md.py`)
+- **Bash + jq + gh CLI** — cache audit shell scripts
+- **GitHub Pages** — hosting (deployed via `mkdocs gh-deploy`)
+
+**Documentation Pages:**
+| Page | Content |
+|---|---|
+| `index.md` | Getting started, future plans |
+| `user-manual-gha-en.md` | GitHub Actions integration (English) |
+| `user-manual-gha-zh.md` | GitHub Actions integration (Chinese) |
+| `user-manual-buildkite-en.md` | Buildkite CI integration (English) |
+| `user-manual-buildkite-zh.md` | Buildkite CI integration (Chinese) |
+| `Repo.md` | Auto-generated table of integrated repos with cache status |
+| `ci-infrastructure-deployment-zh.md` | CI infrastructure architecture (Chinese) |
+
+**CI/CD:**
+- `ci.yml`: Deploy docs to GitHub Pages on push
+- `check-cache-audit.yml`: Daily (02:24 UTC) scan of integrated repos for PyPI/APT cache usage, auto-commits results to `Repo.md`
+
+**Supported CI Platforms:** GitHub Actions, Buildkite CI
+
+---
+
+## Development Conventions (All Repos)
+
+### General
+- **Bilingual:** Documentation and comments are in both English and Chinese
+- **GitOps:** All deployments are via ArgoCD watching git repos; no `kubectl apply` or `helm install` directly to production clusters
+- **PR-first:** All changes go through pull requests; direct pushes to main are blocked
+- **Branch naming for onboarding:** `onboarding/{targetDir}` for auto-generated PRs
+
+### YAML/K8s Conventions
+- Kubernetes manifests use `kustomization.yaml` (not `kustomization.yml`)
+- Helm charts use `values.yaml` for configuration overrides
+- All namespaces are created by ArgoCD (`CreateNamespace=true`)
+- ARC controllers always go in `arc-systems` namespace; runners in org-named namespaces
+- Resource naming pattern: `{org-lower}-{repo-lower}-{resource-type}`
+
+### Go Conventions (ascend-runner-onboarding)
+- Go 1.25 with sumdb verification
+- Linting via `.golangci.yml`: errcheck, govet, staticcheck, unused, ineffassign, gosimple
+- Tests use table-driven patterns with mock interfaces
+- Vault integration tests require `vault_live` build tag
+- Error handling: always wrap errors with context, log at appropriate level
+
+### Security
+- GitHub tokens NEVER stored in plaintext — always via Vault-backed `SecretDefinition`
+- Webhooks are HMAC-SHA256 verified (1 MiB body cap)
+- Image pull secrets managed by `imagepullsecret-patcher` DaemonSet
+- Container images pinned by SHA in production; use `latest` only in dev
+
+---
+
+## Key Inter-Repository Relationships
+
+1. **ascend-runner-onboarding writes to both ascend-ci-deployment and ascend-ci-argocd** — it is the only component that creates new deployment configs programmatically
+2. **ascend-ci-argocd points to ascend-ci-deployment** — all CI runner Applications reference `repoURL: https://github.com/opensourceways/ascend-ci-deployment.git`
+3. **ArgoCD watches both repos** — changes merged to main in either repo trigger automatic sync
+4. **docs is independent** — generated by MkDocs, deployed to GitHub Pages, no runtime dependency on other submodules
+5. **allowlist in ascend-runner-onboarding must match** the org/repo directory structure in ascend-ci-deployment — naming is derived by `DeriveNaming()`, not manually configured
+
+---
+
+## Common Tasks Reference
+
+### Adding a new project to the Ascend CI platform
+1. Add to allowlist in `ascend-runner-onboarding/config/reference-projects.yaml`
+2. Either let the GitHub App onboarding flow auto-generate configs, OR manually:
+   - Create `{org}/{repo}/config/` directory in `ascend-ci-deployment`
+   - Create ArgoCD Application YAMLs in `ascend-ci-argocd/applications/argocd/{cluster}/`
+3. Update `docs/docs/Repo.md` with cache audit entry
+
+### Adding a new cluster
+1. Add cluster definition to `ascend-runner-onboarding/config/reference-projects.yaml`
+2. Add ArgoCD Application directory: `ascend-ci-argocd/applications/argocd/{cluster-name}/`
+3. Add ARC controller Application: `ascend-ci-argocd/applications/argocd-controller/arc-controller-{cluster}.yaml`
+4. Add monitoring config: `ascend-ci-deployment/monitoring/config-for-{cluster}/`
+
+### Upgrading ARC version
+1. Add new Helm chart: `ascend-ci-argocd/applications/deploy/arc-controller-{version}/`
+2. Update ARC controller Applications to point to new path
+3. Update runner scale-set Charts to reference new ARC version
+4. See `ascend-ci-deployment/checklist/arc-upgrade/` for detailed checklist
+
+### Debugging onboarding failures
+1. Check installation status: query `installations` table in PostgreSQL/SQLite
+2. Check Vault: verify `{org}_installation_id` key exists in KV v2
+3. Check PR status: look at `note` field in installation record for PR URLs
+4. Check queue: if using Redis, inspect Stream + DLQ; if memory, check service logs
