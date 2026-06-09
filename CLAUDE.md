@@ -248,6 +248,110 @@ new → provisioning → pr_pending → provisioned
 
 ---
 
+## ARC Multi-Cluster HA & Load Balancing
+
+### Custom ARC Controller
+
+The platform uses a **customized Actions Runner Controller** based on upstream v0.14.2:
+
+- **Helm chart:** Official `gha-runner-scale-set` v0.14.2
+- **Controller & listener image:** `swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/gha-runner-scale-set-controller:0.14.201`
+
+This custom build adds multi-cluster HA and cluster-aware load balancing on top of the upstream ARC.
+
+### Multi-Cluster HA via Labels
+
+ARC v0.14.2+ supports labeling runner scale sets for multi-cluster high availability. When the same label is applied to runner scale sets in **different clusters**, GitHub Actions will route jobs to any cluster that has that label, achieving cross-cluster HA.
+
+In `ascend-ci-deployment`, labels are configured in `values.yaml` under `gha-runner-scale-set.scaleSetLabels`:
+
+```yaml
+gha-runner-scale-set:
+  scaleSetLabels:
+    - "linux-aarch64-a3-8"    # Runner type + NPU count
+    - "cn12-001"              # Cluster name
+```
+
+- **First label** (`linux-aarch64-a3-8`): identifies the runner capability to GitHub Actions — this is what the user's workflow `runs-on` target matches against
+- **Second label** (`cn12-001`): identifies which cluster this runner scale set belongs to, enabling cluster-level routing and isolation
+
+A job specifying `runs-on: linux-aarch64-a3-8` can be picked up by any cluster that has a runner scale set with this label, providing automatic failover.
+
+### Cluster Load Balancing via Resource Annotations
+
+ARC v0.14.2+ supports **resource-aware job scheduling** through annotations on the ephemeral runner set. When a job arrives, ARC checks the resource requirements and routes it to a cluster with sufficient capacity:
+
+```yaml
+gha-runner-scale-set:
+  resourceMeta:
+    ephemeralRunnerSet:
+      annotations:
+        actions.github.com/job-cpu: "128"
+        actions.github.com/job-memory: "512Gi"
+        actions.github.com/job-npu: "huawei.com/ascend-1980:8"
+```
+
+| Annotation | Meaning |
+|---|---|
+| `actions.github.com/job-cpu` | CPU cores the job pod requests |
+| `actions.github.com/job-memory` | Memory the job pod requests |
+| `actions.github.com/job-npu` | NPU vendor resource in K8s format (`vendor/device:count`) |
+
+These annotations let ARC perform cluster-level load balancing — a job that needs 8 NPUs won't be sent to a cluster where all NPU nodes are full.
+
+---
+
+## Naming Conventions
+
+### Runner Namespace Naming
+
+Namespaces are derived from the GitHub `{org}/{repo}` pair. The rules differ for new vs. existing projects:
+
+**New projects (post-onboarding service):**
+- Convert the full `{org}/{repo}` to **lowercase with hyphen**: `{org-lower}-{repo-lower}`
+- Example: `alibaba/ROLL` → namespace `alibaba-roll`
+- This is done automatically by the onboarding service; the transformation is the responsibility of `DeriveNaming()` in `ascend-runner-onboarding/internal/arcdeploy/render.go`
+
+**Existing projects (legacy, pre-onboarding service):**
+- Keep the **existing namespace format as-is**. Do not rename.
+- Example: `vllm-project/vllm-ascend` → namespace remains `vllm-project` (NOT `vllm-project-vllm-ascend`)
+
+> **Rule of thumb:** When adding a new org/repo, lowercase both the org and repo names and join with `-`. When modifying an existing project, preserve whatever namespace it already has.
+
+### Runner Scale Set Naming
+
+The runner scale set name format depends on the **ARC controller version**:
+
+**ARC < 0.14.0 (legacy):**
+```
+linux-{arch}-{npu_type}-{npu_count}
+```
+- Does NOT include the cluster name
+- Example: `linux-aarch64-a3-2`
+- User's workflow: `runs-on: linux-aarch64-a3-2`
+
+**ARC >= 0.14.0 (current):**
+```
+linux-{arch}-{npu_type}-{npu_count}-{cluster_name}
+```
+- MUST include the cluster name suffix
+- Example: `linux-aarch64-a3-2-gy005`
+- MUST also have a **scale set label** matching the legacy format (`linux-aarch64-a3-2`), so GitHub Actions can discover the runner by the shorter name
+- User's workflow still uses: `runs-on: linux-aarch64-a3-2` (the label, not the full scale set name)
+
+**Naming components:**
+
+| Component | Values |
+|---|---|
+| `{arch}` | `arm64` (legacy), `aarch64` (current) |
+| `{npu_type}` | `npu` (legacy), `a2` (910B), `a2b3` (910B3), `a3` (910C), `310p` (310P), `910c` (910C), `cpu` (no NPU) |
+| `{npu_count}` | 0, 1, 2, 4, 8, 16 (varies by NPU type) |
+| `{cluster_name}` | e.g., `gy005`, `cn12-001`, `hk001` (matched to the `scaleSetLabels` second label) |
+
+**Why the dual naming:** GitHub Actions discovers runners by label. The shorter label (`linux-aarch64-a3-2`) is what users write in workflows. The longer scale set name (`linux-aarch64-a3-2-gy005`) is what ArgoCD and the platform use internally to distinguish the same runner type across different clusters for HA.
+
+---
+
 ## Development Conventions (All Repos)
 
 ### General
