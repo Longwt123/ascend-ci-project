@@ -259,23 +259,27 @@ The platform uses a **customized Actions Runner Controller** based on upstream v
 
 This custom build adds multi-cluster HA and cluster-aware load balancing on top of the upstream ARC.
 
-### Multi-Cluster HA via Labels
+### Multi-Cluster HA via Scale Set Labels
 
-ARC v0.14.2+ supports labeling runner scale sets for multi-cluster high availability. When the same label is applied to runner scale sets in **different clusters**, GitHub Actions will route jobs to any cluster that has that label, achieving cross-cluster HA.
+ARC v0.14.2 and above supports runner scale set labels to enable multi-cluster HA. When runner scale sets in **different clusters** carry the same label, GitHub Actions can route a job matching that label to **any** of those clusters — achieving cross-cluster failover.
 
-In `ascend-ci-deployment`, labels are configured in `values.yaml` under `gha-runner-scale-set.scaleSetLabels`:
+In `ascend-ci-deployment`, labels are configured in runner `values.yaml` under `gha-runner-scale-set.scaleSetLabels`:
 
 ```yaml
 gha-runner-scale-set:
   scaleSetLabels:
-    - "linux-aarch64-a3-8"    # Runner type + NPU count
-    - "cn12-001"              # Cluster name
+    - "linux-aarch64-a3-8"
+    - "cn12-001"
 ```
 
-- **First label** (`linux-aarch64-a3-8`): identifies the runner capability to GitHub Actions — this is what the user's workflow `runs-on` target matches against
-- **Second label** (`cn12-001`): identifies which cluster this runner scale set belongs to, enabling cluster-level routing and isolation
+**Two labels, two purposes:**
 
-A job specifying `runs-on: linux-aarch64-a3-8` can be picked up by any cluster that has a runner scale set with this label, providing automatic failover.
+| Label | Purpose |
+|---|---|
+| `linux-aarch64-a3-8` | Runner **capability label** — what the user writes in `runs-on`. GitHub Actions uses this to discover and match runners. If the same label exists on runner scale sets in multiple clusters, any of them can claim the job → multi-cluster HA. |
+| `cn12-001` | **Cluster identity label** — marks which cluster this runner scale set belongs to. Used for cluster-level isolation and routing within the platform. |
+
+> **Rule:** Every runner scale set on ARC >= 0.14.0 **must** carry at least these two labels: the capability label and the cluster name label.
 
 ### Cluster Load Balancing via Resource Annotations
 
@@ -335,9 +339,13 @@ linux-{arch}-{npu_type}-{npu_count}
 linux-{arch}-{npu_type}-{npu_count}-{cluster_name}
 ```
 - MUST include the cluster name suffix
-- Example: `linux-aarch64-a3-2-gy005`
-- MUST also have a **scale set label** matching the legacy format (`linux-aarch64-a3-2`), so GitHub Actions can discover the runner by the shorter name
-- User's workflow still uses: `runs-on: linux-aarch64-a3-2` (the label, not the full scale set name)
+- Example scale set name: `linux-aarch64-a3-2-gy005`
+- **MUST also set TWO labels** in `gha-runner-scale-set.scaleSetLabels`:
+  1. The **capability label**: `linux-aarch64-a3-2` (short form matching the legacy pattern) — this is what GitHub Actions uses for `runs-on` matching
+  2. The **cluster name label**: `gy005` — identifies which cluster this scale set runs on
+- User's workflow: `runs-on: linux-aarch64-a3-2` (the capability label, NOT the full scale set name)
+
+> **Why:** GitHub Actions discovers runners by their labels. The capability label `linux-aarch64-a3-2` is what the user writes in their workflow. The cluster label `gy005` is for platform-internal routing. Without the capability label, GitHub cannot find the runner.
 
 **Naming components:**
 
@@ -346,9 +354,21 @@ linux-{arch}-{npu_type}-{npu_count}-{cluster_name}
 | `{arch}` | `arm64` (legacy), `aarch64` (current) |
 | `{npu_type}` | `npu` (legacy), `a2` (910B), `a2b3` (910B3), `a3` (910C), `310p` (310P), `910c` (910C), `cpu` (no NPU) |
 | `{npu_count}` | 0, 1, 2, 4, 8, 16 (varies by NPU type) |
-| `{cluster_name}` | e.g., `gy005`, `cn12-001`, `hk001` (matched to the `scaleSetLabels` second label) |
+| `{cluster_name}` | e.g., `gy005`, `cn12-001`, `hk001` — also added as a `scaleSetLabels` entry |
 
-**Why the dual naming:** GitHub Actions discovers runners by label. The shorter label (`linux-aarch64-a3-2`) is what users write in workflows. The longer scale set name (`linux-aarch64-a3-2-gy005`) is what ArgoCD and the platform use internally to distinguish the same runner type across different clusters for HA.
+**Label requirements summary for ARC >= 0.14.0:**
+
+Every runner scale set must carry **both** labels in `scaleSetLabels`:
+```yaml
+gha-runner-scale-set:
+  scaleSetLabels:
+    - "linux-aarch64-a3-2"    # capability label (= short name, without cluster suffix)
+    - "gy005"                 # cluster name label
+```
+
+- The **capability label** is how GitHub Actions discovers the runner (`runs-on: linux-aarch64-a3-2`)
+- The **cluster name label** enables platform-internal cluster routing and isolation
+- The full scale set name (`linux-aarch64-a3-2-gy005`) is the ArgoCD/internal identifier — it is NOT what users write in workflows
 
 ---
 
