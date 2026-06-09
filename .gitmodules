@@ -7,3 +7,6 @@
 [submodule "ascend-runner-onboarding"]
 	path = ascend-runner-onboarding
 	url = https://github.com/opensourceways/ascend-runner-onboarding.git
+[submodule "docs"]
+	path = docs
+	url = https://github.com/ascend-gha-runners/docs.git
