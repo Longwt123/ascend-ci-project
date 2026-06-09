@@ -99,7 +99,28 @@ The platform provides **self-hosted GitHub Actions runners on Ascend NPU hardwar
 | `linux-aarch64-910c` | Ascend 910C | 0, 2, 4, 8, 16 |
 | `linux-arm64-cpu` | CPU-only | 1, 4, 8, 16, 24 |
 
-**Clusters (~12):** `guiyang-003/004/005/006`, `hk-001`, `cn12-001`, `hb-003`, `hd-001`, `hidevlab-k8s`, `verl-suzhou`, `infra-cn4-x86-common-cluster`, `karmada-test`
+**Clusters — Full Inventory:**
+
+| Short Name | ArgoCD Destination | Region | ARC | Projects | ci-deployment config | ci-argocd dir |
+|---|---|---|---|---|---|---|
+| `gy-003` | `openmerlin-guiyang-003-cluster` | Guiyang | 0.14.2 | vllm-ascend, ascend-gha-runners | `config-for-guiyang-003/` | `gy-003/` |
+| `gy-004` | `openmerlin-guiyang-004-cluster` | Guiyang | 0.14.2 | sglang, sgl-kernel-npu | `config-for-guiyang-004/` | `gy-004/` |
+| `gy-005` | `openmerlin-guiyang-005-cluster` | Guiyang | 0.14.2 | vllm-ascend, vllm-omni, tile-ai, triton-lang, cosdt | `config-for-guiyang-005/` | `gy-005/` |
+| `gy-006` | `openmerlin-guiyang-006-cluster` | Guiyang | test | vllm-ascend, vllm-omni | `config-for-guiyang-006/` | `gy-006/`, `openmerlin-guiyang-006/` |
+| `gy-007` | `openmerlin-guiyang-007-cluster` | Guiyang | — | — | — | `gy-007/`, `openmerlin-guiyang-007/` |
+| `hk-001` | `ascend-hk-001-cluster` | Hong Kong | 0.14.2 | vllm-ascend, sglang, verl, LLaMA-Factory, ms-swift, linkedin, modelscope | `config-hk001/`, `config-for-hk-001/` | `hk-001/` |
+| `hk-ci` | `infra-hk-opensourceway-ci-cluster` | Hong Kong | 0.14.2 | opensourceways, agentic-develop-playground | (in org dirs) | `hk-ci/` |
+| `cn12-001` | `ascend-cn12-001-cluster` | **华北 (Huabei)** | 0.14.2 | vllm-omni, triton-lang, tile-ai, alibaba/ROLL | `config-cn12-001/`, `config-for-cn12/` | `cn12-001/` |
+| `hb-003` | `ascend-aiframework` | **华北 (Huabei-3)** | 0.13.0 | Ascend/pytorch | `config-for-hb003/` (volcengine/verl) | `hb-003/` |
+| `hb-003-verl` | `ascend-mind-third-ci` | **华北 (Huabei-3)** | 0.13.0 | volcengine/verl, ascend-gha-runners/sync-tools | `config-for-hb003-verl/` | `hb-003-verl/` |
+| `hd-001` | `ascend-ci-sglang-cluster-001` | Huadong (华东) | 0.14.2 | sglang, sgl-kernel-npu | `config-for-sglang01/` | `hd-001/`, `ascend-ci-sglang-huadong2-cluster/` |
+| `hidevlab-k8s` | `hidevlab-k8s` | Dev/Lab | 0.14.2 | vllm-ascend, add-node-check | `config-for-hidevlab-k8s/` | `hidevlab-k8s/` |
+| `verl-suzhou` | `in-cluster` | Suzhou | 0.14.2 | volcengine/verl | `config-for-suzhou/` | `verl-suzhou/` |
+| `karmada-test` | `ascend-karmada-test-cluster` | Test | 0.14.2 | vllm-ascend | `config-for-karmada-test/` | `ascend-karmada-test/` |
+| `infra-cn4-x86` | `infra-cn4-x86-common-cluster` | Infra | — | monitoring only | `monitoring/config-for-infra-cn4-x86-common-cluster/` | `infra-cn4-x86-common-cluster/` |
+
+> **华北 (Huabei) clusters together:** `cn12-001`, `hb-003` (aiframework), `hb-003-verl` (mind-third-ci), and `ascend-triton-agent-ci` (planned, not yet in code).
+> When modifying clusters, both `ascend-ci-deployment` and `ascend-ci-argocd` must be updated together — they are two sides of the same deployment.
 
 **Projects Hosted (~20):** vllm-project/vllm-ascend, sgl-project/sglang, triton-lang/triton-ascend, tile-ai/tilelang-ascend, volcengine/verl, modelscope/ms-swift, hiyouga/LLaMA-Factory, Ascend/Ascend-CI, pytorch-fdn, linkedin/liger-kernel, alibaba/ROLL, and more.
 
@@ -166,7 +187,7 @@ spec:
 
 **ARC Controller applications:** Found in `applications/argocd-controller/` — deploy the ARC controller itself (v0.13.0, v0.13.1, v0.14.2) using `ServerSideApply=true`
 
-**Clusters Managed (~20 directories):** gy-003 through gy-007, hk-001, hk-ci, cn12-001, hb-003, hb-003-verl, hd-001, hidevlab-k8s, verl-suzhou, ascend-karmada-test, plus infra clusters.
+**Clusters Managed:** See the [full cluster inventory](#1-ascend-ci-deployment--k8s-infrastructure-as-code) in the deployment section above. The same clusters appear as ArgoCD Application directories under `applications/argocd/{cluster-name}/` and ARC controller files under `applications/argocd-controller/arc-controller-{cluster-name}.yaml`.
 
 **Claude Code Skills (within this submodule):**
 - `app-argocd-onboarding` — generates new ArgoCD Application YAML files for onboarding projects
@@ -336,16 +357,23 @@ linux-{arch}-{npu_type}-{npu_count}
 
 **ARC >= 0.14.0 (current):**
 ```
-linux-{arch}-{npu_type}-{npu_count}-{cluster_name}
+linux-{arch}-{npu_type}-{npu_count}-{cluster_suffix}
 ```
-- MUST include the cluster name suffix
-- Example scale set name: `linux-aarch64-a3-2-gy005`
+- MUST include the cluster suffix
+- The `{cluster_suffix}` is derived from the **Short Name** in the cluster inventory table, with hyphens removed for guiyang-style names:
+  - `gy-003` → `gy003`, `gy-005` → `gy005`, `gy-006` → `gy006`
+  - `cn12-001` → `cn12-001` (hyphens preserved)
+  - `hk-001` → `hk001`
+  - `hb-003` → `hb003`
+- Example scale set directory: `linux-aarch64-a3-2-cn12-001`, `linux-aarch64-a3-2-gy006`
 - **MUST also set TWO labels** in `gha-runner-scale-set.scaleSetLabels`:
   1. The **capability label**: `linux-aarch64-a3-2` (short form matching the legacy pattern) — this is what GitHub Actions uses for `runs-on` matching
-  2. The **cluster name label**: `gy005` — identifies which cluster this scale set runs on
+  2. The **cluster name label**: `cn12-001` or `gy006` — identifies which cluster this scale set runs on
 - User's workflow: `runs-on: linux-aarch64-a3-2` (the capability label, NOT the full scale set name)
 
-> **Why:** GitHub Actions discovers runners by their labels. The capability label `linux-aarch64-a3-2` is what the user writes in their workflow. The cluster label `gy005` is for platform-internal routing. Without the capability label, GitHub cannot find the runner.
+> **Why:** GitHub Actions discovers runners by their labels. The capability label `linux-aarch64-a3-2` is what the user writes in their workflow. The cluster label `cn12-001` or `gy006` is for platform-internal routing. Without the capability label, GitHub cannot find the runner.
+>
+> **Note on cluster suffix format:** The suffix in directory names strips hyphens from the cluster short name for guiyang/hk/hb clusters (`gy003`, `hk001`, `hb003`) but preserves them for cn12 (`cn12-001`). Always match the existing convention in the codebase for the specific cluster you're working with.
 
 **Naming components:**
 
@@ -354,7 +382,7 @@ linux-{arch}-{npu_type}-{npu_count}-{cluster_name}
 | `{arch}` | `arm64` (legacy), `aarch64` (current) |
 | `{npu_type}` | `npu` (legacy), `a2` (910B), `a2b3` (910B3), `a3` (910C), `310p` (310P), `910c` (910C), `cpu` (no NPU) |
 | `{npu_count}` | 0, 1, 2, 4, 8, 16 (varies by NPU type) |
-| `{cluster_name}` | e.g., `gy005`, `cn12-001`, `hk001` — also added as a `scaleSetLabels` entry |
+| `{cluster_name}` | **Must match the Short Name from the cluster inventory table** (e.g., `gy005`, `cn12-001`, `hb003`). This same value is used as the cluster label in `scaleSetLabels` and as the suffix in the scale set name. Note: `cn12-001` keeps its hyphens, while `hb003` and `hk001` are hyphen-free — **use exactly the short name as listed in the cluster table**. |
 
 **Label requirements summary for ARC >= 0.14.0:**
 
@@ -362,13 +390,13 @@ Every runner scale set must carry **both** labels in `scaleSetLabels`:
 ```yaml
 gha-runner-scale-set:
   scaleSetLabels:
-    - "linux-aarch64-a3-2"    # capability label (= short name, without cluster suffix)
-    - "gy005"                 # cluster name label
+    - "linux-aarch64-a3-2"    # capability label (without cluster suffix)
+    - "cn12-001"              # cluster name label (= Short Name from cluster table)
 ```
 
 - The **capability label** is how GitHub Actions discovers the runner (`runs-on: linux-aarch64-a3-2`)
-- The **cluster name label** enables platform-internal cluster routing and isolation
-- The full scale set name (`linux-aarch64-a3-2-gy005`) is the ArgoCD/internal identifier — it is NOT what users write in workflows
+- The **cluster name label** uses the cluster Short Name exactly as listed in the cluster inventory (e.g., `cn12-001`, `gy006`, `hb003`)
+- The full scale set directory name (`linux-aarch64-a3-2-cn12-001`) is the ArgoCD/internal identifier — it is NOT what users write in workflows
 
 ---
 
