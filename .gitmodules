@@ -4,3 +4,6 @@
 [submodule "ascend-ci-argocd"]
 	path = ascend-ci-argocd
 	url = https://github.com/opensourceways/ascend-ci-argocd.git
+[submodule "ascend-runner-onboarding"]
+	path = ascend-runner-onboarding
+	url = https://github.com/opensourceways/ascend-runner-onboarding.git
