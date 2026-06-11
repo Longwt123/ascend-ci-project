@@ -63,7 +63,7 @@ The platform provides **self-hosted GitHub Actions runners on Ascend NPU hardwar
 **Purpose:** Contains all Kubernetes manifests, Helm chart values, and Kustomize overlays for deploying GitHub Actions Runner Controller (ARC) and supporting infrastructure across ~12 Ascend NPU clusters.
 
 **Key Technologies:**
-- **Helm v3** — `gha-runner-scale-set` chart (ARC v0.12.0)
+- **Helm v3** — `gha-runner-scale-set` chart (ARC v0.13.0, v0.14.2)
 - **Kustomize** — Kubernetes native config composition for per-cluster overlays
 - **ArgoCD** (GitOps consumer) — watches this repo's main branch, auto-syncs to clusters
 - **Vault Agent Injector** — dynamic secret/cert injection via `SecretDefinition` CRD
@@ -82,42 +82,48 @@ The platform provides **self-hosted GitHub Actions runners on Ascend NPU hardwar
       pre-execute-script-check-npu-configmap.yaml
       container-job-pod-template-npu-{N}-configmap.yaml
       custom-runner-container-hook-pvc.yaml
-    config-{REGION}/                  # Region-specific config overlays (e.g., config-hk001)
+    config-{CLUSTER}/                 # Cluster-specific config overlays (e.g., config-hk001, config-cn12-001, config-for-guiyang-005)
     linux-{ARCH}-{NPU_TYPE}-{COUNT}/  # Helm chart per runner scale-set spec
       Chart.yaml                      # References gha-runner-scale-set as dependency
       Chart.lock
       values.yaml                     # githubConfigUrl, secret, pod templates, metrics
 ```
 
-**NPU Types Supported:**
+**Runner Types Supported:**
 | Label Prefix | Hardware | Sizes |
 |---|---|---|
-| `linux-arm64-npu` | Legacy NPU | 0, 1, 2, 4, 8 |
+| `linux-arm64-npu` | Legacy NPU | 1, 2, 4, 8 |
 | `linux-aarch64-a2` | Ascend 910B (A2) | 0, 1, 2, 4, 8 |
+| `linux-aarch64-a2b3` | Ascend 910B3 (A2B3) | 0, 1, 2, 4, 8 |
+| `linux-aarch64-a2b4` | Ascend 910B4 (A2B4) | 1, 2, 4, 8 |
 | `linux-aarch64-a3` | Ascend 910C (A3) | 0, 2, 4, 8, 16 |
 | `linux-aarch64-310p` | Ascend 310P | 1, 2, 4 |
 | `linux-aarch64-910c` | Ascend 910C | 0, 2, 4, 8, 16 |
-| `linux-arm64-cpu` | CPU-only | 1, 4, 8, 16, 24 |
+| `linux-arm64-cpu` | CPU ARM64 | 1, 4, 8, 16, 24 |
+| `linux-amd64-cpu` | CPU x86_64 | 0, 1, 4, 8, 16, 24 |
+| `linux-aarch64-cpu` | CPU AArch64 | 1, 2, 8, 16 |
 
 **Clusters — Full Inventory:**
 
 | Short Name | ArgoCD Destination | Region | ARC | Projects | ci-deployment config | ci-argocd dir |
 |---|---|---|---|---|---|---|
-| `gy-003` | `openmerlin-guiyang-003-cluster` | Guiyang | 0.14.2 | vllm-ascend, ascend-gha-runners | `config-for-guiyang-003/` | `gy-003/` |
-| `gy-004` | `openmerlin-guiyang-004-cluster` | Guiyang | 0.14.2 | sglang, sgl-kernel-npu | `config-for-guiyang-004/` | `gy-004/` |
-| `gy-005` | `openmerlin-guiyang-005-cluster` | Guiyang | 0.14.2 | vllm-ascend, vllm-omni, tile-ai, triton-lang, cosdt | `config-for-guiyang-005/` | `gy-005/` |
-| `gy-006` | `openmerlin-guiyang-006-cluster` | Guiyang | test | vllm-ascend, vllm-omni | `config-for-guiyang-006/` | `gy-006/`, `openmerlin-guiyang-006/` |
+| `gy-003` | `openmerlin-guiyang-003-cluster` | Guiyang | 0.13.0 | vllm-ascend, ascend-gha-runners, Ascend-CI | `config-for-guiyang-003/`, `config-for-gy003/` | `gy-003/` |
+| `gy-004` | `openmerlin-guiyang-004-cluster` | Guiyang | 0.13.0 | sglang, sgl-kernel-npu, ascend-gha-runners | `config-for-guiyang-004/` | `gy-004/` |
+| `gy-005` | `openmerlin-guiyang-005-cluster` | Guiyang | 0.13.0 | vllm-ascend, vllm-omni, tile-ai, triton-lang, cosdt/vllm-ascend-integration-ci, Ascend/ray-ascend | `config-for-guiyang-005/` | `gy-005/` |
+| `gy-006` | `openmerlin-guiyang-006-cluster` | Guiyang | 0.14.2 | vllm-ascend, vllm-omni | `config-for-guiyang-006/` | `gy-006/`, `openmerlin-guiyang-006/` |
 | `gy-007` | `openmerlin-guiyang-007-cluster` | Guiyang | — | — | — | `gy-007/`, `openmerlin-guiyang-007/` |
-| `hk-001` | `ascend-hk-001-cluster` | Hong Kong | 0.14.2 | vllm-ascend, sglang, verl, LLaMA-Factory, ms-swift, linkedin, modelscope | `config-hk001/`, `config-for-hk-001/` | `hk-001/` |
-| `hk-ci` | `infra-hk-opensourceway-ci-cluster` | Hong Kong | 0.14.2 | opensourceways, agentic-develop-playground | (in org dirs) | `hk-ci/` |
-| `cn12-001` | `ascend-cn12-001-cluster` | **华北 (Huabei)** | 0.14.2 | vllm-omni, triton-lang, tile-ai, alibaba/ROLL | `config-cn12-001/`, `config-for-cn12/` | `cn12-001/` |
-| `hb-003` | `ascend-aiframework` | **华北 (Huabei-3)** | 0.13.0 | Ascend/pytorch | `config-for-hb003/` (volcengine/verl) | `hb-003/` |
-| `hb-003-verl` | `ascend-mind-third-ci` | **华北 (Huabei-3)** | 0.13.0 | volcengine/verl, ascend-gha-runners/sync-tools | `config-for-hb003-verl/` | `hb-003-verl/` |
-| `hd-001` | `ascend-ci-sglang-cluster-001` | Huadong (华东) | 0.14.2 | sglang, sgl-kernel-npu | `config-for-sglang01/` | `hd-001/`, `ascend-ci-sglang-huadong2-cluster/` |
-| `hidevlab-k8s` | `hidevlab-k8s` | Dev/Lab | 0.14.2 | vllm-ascend, add-node-check | `config-for-hidevlab-k8s/` | `hidevlab-k8s/` |
-| `verl-suzhou` | `in-cluster` | Suzhou | 0.14.2 | volcengine/verl | `config-for-suzhou/` | `verl-suzhou/` |
-| `karmada-test` | `ascend-karmada-test-cluster` | Test | 0.14.2 | vllm-ascend | `config-for-karmada-test/` | `ascend-karmada-test/` |
+| `hk-001` | `ascend-hk-001-cluster` | Hong Kong | 0.13.0 | vllm-ascend, sglang, verl, LLaMA-Factory, ms-swift, linkedin, modelscope, Ascend-CI, pytorch-fdn, cosdt | `config-hk001/`, `config-for-hk-001/` | `hk-001/` |
+| `hk-ci` | `infra-hk-opensourceway-ci-cluster` | Hong Kong | 0.13.0 | opensourceways, agentic-develop-playground | (in org dirs) | `hk-ci/` |
+| `cn12-001` | `ascend-cn12-001-cluster` | **华北 (Huabei)** | 0.14.2* | vllm-omni, triton-lang, tile-ai, alibaba/ROLL, ascend-gha-runners/vllm-ascend | `config-cn12-001/`, `config-for-cn12/` | `cn12-001/` |
+| `hb-003` | `ascend-aiframework` | **华北 (Huabei-3)** | 0.13.0 | Ascend/pytorch | `Ascend/pytorch/config/` | `hb-003/` |
+| `hb-003-verl` | `ascend-mind-third-ci` | **华北 (Huabei-3)** | 0.13.0 | volcengine/verl, ascend-gha-runners/sync-tools | `config-for-hb003/`, `config-for-hb003-verl/` | `hb-003-verl/` |
+| `hd-001` | `ascend-ci-sglang-cluster-001` | Huadong (华东) | custom† | sglang, sgl-kernel-npu | `config-for-sglang01/` | `hd-001/`, `ascend-ci-sglang-huadong2-cluster/` |
+| `hidevlab-k8s` | `hidevlab-k8s` | Dev/Lab | 0.13.0 | vllm-ascend, add-node-check | `config-for-hidevlab-k8s/` | `hidevlab-k8s/` |
+| `verl-suzhou` | `in-cluster` | Suzhou | 0.13.0 | volcengine/verl | `config-for-suzhou/` | `verl-suzhou/` |
+| `karmada-test` | `ascend-karmada-test-cluster` | Test | 0.13.0 | vllm-ascend | `config-for-karmada-test/` | `ascend-karmada-test/` |
 | `infra-cn4-x86` | `infra-cn4-x86-common-cluster` | Infra | — | monitoring only | `monitoring/config-for-infra-cn4-x86-common-cluster/` | `infra-cn4-x86-common-cluster/` |
+
+> **ARC versions:** `*` = cn12-001 and gy-006 use the custom 0.14.2 build (controller image tag `0.14.201`, Helm chart from `arc-controller-0.14.2`). `†` = hd-001 uses `arc-controller-for-cpu-node` (custom CPU-only profile). All other non-empty clusters use `arc-controller-0.13.0`. The 0.14.2 custom build is the only one that supports `scaleSetLabels`, `resourceMeta`, and multi-cluster HA features.
 
 > **华北 (Huabei) clusters together:** `cn12-001`, `hb-003` (aiframework), `hb-003-verl` (mind-third-ci), and `ascend-triton-agent-ci` (planned, not yet in code).
 > When modifying clusters, both `ascend-ci-deployment` and `ascend-ci-argocd` must be updated together — they are two sides of the same deployment.
@@ -185,9 +191,11 @@ spec:
 
 **Naming Convention:** `{org-lower}-{repo-lower}-{descriptor}` (e.g., `vllm-project-vllm-ascend-linux-aarch64-a3-2`)
 
-**ARC Controller applications:** Found in `applications/argocd-controller/` — deploy the ARC controller itself (v0.13.0, v0.13.1, v0.14.2) using `ServerSideApply=true`
+**ARC Controller applications:** Found in `applications/argocd-controller/` — deploy the ARC controller itself (v0.13.0, v0.13.1, v0.14.2) using `ServerSideApply=true`. Controller filenames use varied naming conventions (e.g., `arc-controller-hk001.yaml`, `arc-controller-huabei-003.yaml`, `arc-controller-huadong2-001.yaml`, `arc-test-openmerlin-guiyang-006.yaml`).
 
-**Clusters Managed:** See the [full cluster inventory](#1-ascend-ci-deployment--k8s-infrastructure-as-code) in the deployment section above. The same clusters appear as ArgoCD Application directories under `applications/argocd/{cluster-name}/` and ARC controller files under `applications/argocd-controller/arc-controller-{cluster-name}.yaml`.
+**Clusters Managed:** See the [full cluster inventory](#1-ascend-ci-deployment--k8s-infrastructure-as-code) in the deployment section above. The same clusters appear as ArgoCD Application directories under `applications/argocd/{cluster-name}/`.
+
+> **verl-suzhou special note:** This cluster uses Gitee (`gitee.com/tfhoo/`) as its source repoURL instead of GitHub, and deploys with destination `in-cluster` (ArgoCD runs on the same cluster being managed).
 
 **Claude Code Skills (within this submodule):**
 - `app-argocd-onboarding` — generates new ArgoCD Application YAML files for onboarding projects
@@ -202,7 +210,7 @@ spec:
 **Purpose:** A Go HTTP service that automates the end-to-end onboarding process when a user installs the `ascend-runner-mgmt` GitHub App. Transforms what was previously a manual ops ticket into a self-service, click-to-provision workflow.
 
 **Key Technologies:**
-- **Go 1.25** — all application code
+- **Go 1.26** — all application code
 - **go-chi/chi** — HTTP router
 - **go-github/v66** — GitHub API client
 - **Redis Stream** (optional) — multi-instance HA via consumer groups, XREADGROUP, XAUTOCLAIM
@@ -380,7 +388,7 @@ linux-{arch}-{npu_type}-{npu_count}-{cluster_suffix}
 | Component | Values |
 |---|---|
 | `{arch}` | `arm64` (legacy), `aarch64` (current) |
-| `{npu_type}` | `npu` (legacy), `a2` (910B), `a2b3` (910B3), `a3` (910C), `310p` (310P), `910c` (910C), `cpu` (no NPU) |
+| `{npu_type}` | `npu` (legacy), `a2` (910B), `a2b3` (910B3), `a2b4` (910B4), `a3` (910C), `310p` (310P), `910c` (910C), `cpu` (no NPU) |
 | `{npu_count}` | 0, 1, 2, 4, 8, 16 (varies by NPU type) |
 | `{cluster_name}` | **Must match the Short Name from the cluster inventory table** (e.g., `gy005`, `cn12-001`, `hb003`). This same value is used as the cluster label in `scaleSetLabels` and as the suffix in the scale set name. Note: `cn12-001` keeps its hyphens, while `hb003` and `hk001` are hyphen-free — **use exactly the short name as listed in the cluster table**. |
 
@@ -416,7 +424,7 @@ gha-runner-scale-set:
 - Resource naming pattern: `{org-lower}-{repo-lower}-{resource-type}`
 
 ### Go Conventions (ascend-runner-onboarding)
-- Go 1.25 with sumdb verification
+- Go 1.26 with sumdb verification
 - Linting via `.golangci.yml`: errcheck, govet, staticcheck, unused, ineffassign, gosimple
 - Tests use table-driven patterns with mock interfaces
 - Vault integration tests require `vault_live` build tag
