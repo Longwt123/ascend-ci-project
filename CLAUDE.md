@@ -290,6 +290,17 @@ monitoring/
 
 **Monitored clusters**: gy-003, gy-004, gy-005, gy-006, hk-001, infra-cn4-x86.
 
+> **Authoritative docs**: `monitoring/README.md` — architecture, data flow, probe metrics, alert rules, cronjob scheduling, troubleshooting, new-cluster onboarding procedure.
+
+**Monitoring images:**
+
+| Component | Image |
+|---|---|
+| Probe | `swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/ci-probe:1.0` |
+| Prometheus (agent + central) | `swr.cn-north-4.myhuaweicloud.com/opensourceway/prometheus:v3.11.3` |
+| Alertmanager | `swr.cn-north-4.myhuaweicloud.com/opensourceway/alertmanager:v0.32.1` |
+| kube-state-metrics | `swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/kube-state-metrics:v2.14.0` |
+
 ---
 
 ## ARC Controller Version Matrix
