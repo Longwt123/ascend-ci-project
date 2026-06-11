@@ -130,6 +130,33 @@ The platform provides **self-hosted GitHub Actions runners on Ascend NPU hardwar
 
 **Projects Hosted (~20):** vllm-project/vllm-ascend, sgl-project/sglang, triton-lang/triton-ascend, tile-ai/tilelang-ascend, volcengine/verl, modelscope/ms-swift, hiyouga/LLaMA-Factory, Ascend/Ascend-CI, pytorch-fdn, linkedin/liger-kernel, alibaba/ROLL, and more.
 
+**Monitoring Architecture:**
+
+```
+monitoring/
+  base/                              # Shared base config (all clusters reuse)
+    kustomization.yaml
+    namespace.yaml
+    monitoring-sa.yaml / monitoring-rbac.yaml / monitoring-clusterrole.yaml
+    prometheus-agent-configmap.yaml / prometheus-agent-deployment.yaml
+    prometheus-agent-secretdefinition.yaml (Vault-backed)
+    pushgateway-secret.yaml / cloud-aksk-secret.yaml
+    probe-configmap.yaml
+    cronjob-*.yaml (cert-expiry, cloud-account, github-probe, mirror-sync, sa-audit, shared-disk)
+  config-for-{cluster}/             # Per-cluster patches only (kustomize overlays on base/)
+    kustomization.yaml               # references ../../base
+    probe-configmap-patch.yaml       # cluster-specific probe targets
+    prometheus-agent-configmap-patch.yaml  # cluster-specific remote-write endpoint
+  prometheus/                        # Central Prometheus (remote-write receiver)
+  kube-state-metrics/
+  node-exporter/
+  pushgateway/
+```
+
+> **Key design:** Common monitoring resources (RBAC, deployments, cronjobs) live in `monitoring/base/` once. Each cluster's `config-for-{cluster}/` is a thin Kustomize overlay that only carries patches (probe targets, remote-write endpoint). This replaced the previous copy-paste model where every cluster had full copies of all monitoring YAML.
+
+**Monitored clusters:** gy-003, gy-004, gy-005, gy-006, hk-001, infra-cn4-x86.
+
 **Storage Patterns:**
 - **SFS Turbo** (Huawei cloud): `csi-sfsturbo` storage class, `ReadWriteMany`, shared across pods
 - **Local:** `hostPath` for bare-metal physical disks
