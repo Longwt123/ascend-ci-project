@@ -9,7 +9,7 @@
 | `ascend-ci-deployment` | K8s manifests + Helm values | [链接](ascend-ci-deployment/CLAUDE.md) |
 | `ascend-ci-argocd` | ArgoCD Application CRD | [链接](ascend-ci-argocd/CLAUDE.md) |
 | `ascend-runner-onboarding` | Go 服务：webhook → 自动开通 | [链接](ascend-runner-onboarding/CLAUDE.md) |
-| `runner-containers-hooks` | Fork of actions/runner-container-hooks，添加 NPU 检查逻辑 | — |
+| `runner-container-hooks` | Fork of actions/runner-container-hooks, adds NPU pre-check logic | — |
 
 **数据流**：GitHub App 安装 → webhook → onboarding 服务 → Vault + git push → ArgoCD 同步 → Runner 可用
 
@@ -50,9 +50,10 @@
 │  └───────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  ┌───────────────────────────────────────────────────────────┐   │
-│  │ runner-containers-hooks (TypeScript)                      │   │
+│  │ runner-container-hooks (TypeScript)                       │   │
 │  │ Fork of actions/runner-container-hooks + NPU pre-check    │   │
-│  │ 构建 index.js → PVC 挂载 → initContainer 替换默认 hooks  │   │
+│  │ Build index.js → mount via PVC → initContainer replaces   │   │
+│  │ default hooks with NPU-aware version                      │   │
 │  └───────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -77,7 +78,7 @@
 | `ascend-ci-deployment` | `opensourceways/ascend-ci-deployment` | K8s manifests, Helm values, Kustomize overlays, monitoring |
 | `ascend-ci-argocd` | `opensourceways/ascend-ci-argocd` | ArgoCD Application CRDs, infrastructure Helm charts |
 | `ascend-runner-onboarding` | `opensourceways/ascend-runner-onboarding` | Go HTTP service: webhook → auto-provision |
-| `runner-containers-hooks` | `opensourceways/runner-container-hooks` | Fork of actions/runner-container-hooks with NPU pre-check to fix pod init error 8020 |
+| `runner-container-hooks` | `opensourceways/runner-container-hooks` | Fork of actions/runner-container-hooks with NPU pre-check to fix pod init error 8020 |
 
 ---
 
@@ -303,22 +304,22 @@ Pod Template ConfigMap: {runner_prefix}-{count}  or  {runner_prefix}-{cluster_su
 
 ---
 
-## `runner-containers-hooks` — NPU Pre-check Hooks
+## `runner-container-hooks` — NPU Pre-check Hooks
 
-Fork of [actions/runner-container-hooks](https://github.com/actions/runner-container-hooks)，在 k8s hook 中添加 NPU 预检查逻辑，解决 [pod 初始化报错 8020](https://github.com/ascend-gha-runners/docs/issues/11)。
+Fork of [actions/runner-container-hooks](https://github.com/actions/runner-container-hooks) with NPU pre-check logic added to the k8s hook, fixing [pod init error 8020](https://github.com/ascend-gha-runners/docs/issues/11).
 
-**工作原理**：
-1. 集群中配置 ConfigMap（check.sh 脚本检查 npu-smi 命令）
-2. 构建本仓库：`npm run bootstrap && npm run build-all`
-3. 构建产物 `packages/k8s/dist/index.js` 放入 PVC
-4. PVC 挂载到 runner pod，通过 initContainer 替换默认 index.js
+**How it works**:
+1. A ConfigMap in the cluster provides a `check.sh` script that verifies `npu-smi` availability
+2. Build: `npm run bootstrap && npm run build-all`
+3. The build output `packages/k8s/dist/index.js` is placed into a PVC
+4. The PVC is mounted to the runner pod; an initContainer replaces the default `index.js` with the NPU-aware version
 
-**项目结构**：
-- `packages/k8s/` — Kubernetes hook 实现（核心修改所在）
-- `packages/docker/` — Docker hook 实现
-- `packages/hooklib/` — 共享类型定义和工具库
+**Project structure**:
+- `packages/k8s/` — Kubernetes hook implementation (core modifications live here)
+- `packages/docker/` — Docker hook implementation
+- `packages/hooklib/` — Shared TypeScript definitions and utilities
 
-**相关镜像**：`swr.cn-south-west-2.myhuaweicloud.com/modelfoundry/runner-containers-hooks:release-no_volumes-9c3ea5`
+**Related image**: `swr.cn-south-west-2.myhuaweicloud.com/modelfoundry/runner-containers-hooks:release-no_volumes-9c3ea5`
 
 ---
 
