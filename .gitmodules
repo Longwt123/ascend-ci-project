@@ -9,4 +9,4 @@
 	url = https://github.com/opensourceways/ascend-runner-onboarding.git
 [submodule "runner-containers-hooks"]
 	path = runner-containers-hooks
-	url = https://github.com/ascend-gha-runners/runner-container-hooks.git
+	url = https://github.com/opensourceways/runner-container-hooks.git

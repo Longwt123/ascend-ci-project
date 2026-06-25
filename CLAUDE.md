@@ -2,13 +2,14 @@
 
 ## TL;DR
 
-这是一个 **git 超级项目**，聚合 3 个子模块来管理 Ascend NPU 上的 GitHub Actions CI 平台：
+这是一个 **git 超级项目**，聚合 4 个子模块来管理 Ascend NPU 上的 GitHub Actions CI 平台：
 
 | 子模块 | 职责 | CLAUDE.md |
 |--------|------|-----------|
 | `ascend-ci-deployment` | K8s manifests + Helm values | [链接](ascend-ci-deployment/CLAUDE.md) |
 | `ascend-ci-argocd` | ArgoCD Application CRD | [链接](ascend-ci-argocd/CLAUDE.md) |
 | `ascend-runner-onboarding` | Go 服务：webhook → 自动开通 | [链接](ascend-runner-onboarding/CLAUDE.md) |
+| `runner-containers-hooks` | Fork of actions/runner-container-hooks，添加 NPU 检查逻辑 | — |
 
 **数据流**：GitHub App 安装 → webhook → onboarding 服务 → Vault + git push → ArgoCD 同步 → Runner 可用
 
@@ -47,6 +48,12 @@
 │  │ ascend-runner-onboarding (Go)                             │   │
 │  │ GitHub App webhook → generates configs → git push + PR    │   │
 │  └───────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌───────────────────────────────────────────────────────────┐   │
+│  │ runner-containers-hooks (TypeScript)                      │   │
+│  │ Fork of actions/runner-container-hooks + NPU pre-check    │   │
+│  │ 构建 index.js → PVC 挂载 → initContainer 替换默认 hooks  │   │
+│  └───────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -70,6 +77,7 @@
 | `ascend-ci-deployment` | `opensourceways/ascend-ci-deployment` | K8s manifests, Helm values, Kustomize overlays, monitoring |
 | `ascend-ci-argocd` | `opensourceways/ascend-ci-argocd` | ArgoCD Application CRDs, infrastructure Helm charts |
 | `ascend-runner-onboarding` | `opensourceways/ascend-runner-onboarding` | Go HTTP service: webhook → auto-provision |
+| `runner-containers-hooks` | `opensourceways/runner-container-hooks` | Fork of actions/runner-container-hooks with NPU pre-check to fix pod init error 8020 |
 
 ---
 
@@ -295,6 +303,25 @@ Pod Template ConfigMap: {runner_prefix}-{count}  or  {runner_prefix}-{cluster_su
 
 ---
 
+## `runner-containers-hooks` — NPU Pre-check Hooks
+
+Fork of [actions/runner-container-hooks](https://github.com/actions/runner-container-hooks)，在 k8s hook 中添加 NPU 预检查逻辑，解决 [pod 初始化报错 8020](https://github.com/ascend-gha-runners/docs/issues/11)。
+
+**工作原理**：
+1. 集群中配置 ConfigMap（check.sh 脚本检查 npu-smi 命令）
+2. 构建本仓库：`npm run bootstrap && npm run build-all`
+3. 构建产物 `packages/k8s/dist/index.js` 放入 PVC
+4. PVC 挂载到 runner pod，通过 initContainer 替换默认 index.js
+
+**项目结构**：
+- `packages/k8s/` — Kubernetes hook 实现（核心修改所在）
+- `packages/docker/` — Docker hook 实现
+- `packages/hooklib/` — 共享类型定义和工具库
+
+**相关镜像**：`swr.cn-south-west-2.myhuaweicloud.com/modelfoundry/runner-containers-hooks:release-no_volumes-9c3ea5`
+
+---
+
 ## Common Operations — Step-by-Step Recipes
 
 ### Adding a new project to existing cluster
@@ -391,5 +418,6 @@ When modifying a cluster or project, these repos must be updated together:
 | Deployment | `https://github.com/opensourceways/ascend-ci-deployment.git` |
 | ArgoCD | `https://github.com/opensourceways/ascend-ci-argocd.git` |
 | Onboarding | `https://github.com/opensourceways/ascend-runner-onboarding.git` |
+| Runner Hooks | `https://github.com/opensourceways/runner-container-hooks` |
 | verl-suzhou (Gitee) | `https://gitee.com/tfhoo/ascend-ci-deployment.git` |
 | verl-suzhou ArgoCD | `https://gitee.com/tfhoo/ascend-ci-argocd.git` |
