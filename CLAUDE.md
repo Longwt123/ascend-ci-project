@@ -1,8 +1,16 @@
 # Ascend-Ci-Project — AI Coding Reference
 
-This is a **git superproject** aggregating the Ascend CI platform via `git clone --recurse-submodules`.  
-Platform: self-hosted GitHub Actions runners on Huawei Ascend NPU (910B/B3/B4/C, 310P).  
-Org: `opensourceways` | Contact: `ascendinfra@huawei.com`
+## TL;DR
+
+这是一个 **git 超级项目**，聚合 3 个子模块来管理 Ascend NPU 上的 GitHub Actions CI 平台：
+
+| 子模块 | 职责 | CLAUDE.md |
+|--------|------|-----------|
+| `ascend-ci-deployment` | K8s manifests + Helm values | [链接](ascend-ci-deployment/CLAUDE.md) |
+| `ascend-ci-argocd` | ArgoCD Application CRD | [链接](ascend-ci-argocd/CLAUDE.md) |
+| `ascend-runner-onboarding` | Go 服务：webhook → 自动开通 | [链接](ascend-runner-onboarding/CLAUDE.md) |
+
+**数据流**：GitHub App 安装 → webhook → onboarding 服务 → Vault + git push → ArgoCD 同步 → Runner 可用
 
 ---
 
@@ -10,16 +18,14 @@ Org: `opensourceways` | Contact: `ascendinfra@huawei.com`
 
 | Question | Answer |
 |---|---|
-| Where are K8s manifests? | `ascend-ci-deployment/{org}/{repo}/` |
-| Where are ArgoCD Applications? | `ascend-ci-argocd/applications/argocd/{cluster}/` |
-| Where are ARC controllers? | `ascend-ci-argocd/applications/argocd-controller/` |
-| Where is onboarding logic? | `ascend-runner-onboarding/internal/arcdeploy/` |
-| Namespace for new org/repo? | `{org-lower}-{repo-lower}` (both lowercase, hyphen) |
-| Runner dir for ARC < 0.14.0? | `linux-{arch}-{npu}-{count}` |
-| Runner dir for ARC >= 0.14.0? | `linux-{arch}-{npu}-{count}-{cluster_suffix}` |
-| Label for ARC >= 0.14.0? | MUST have TWO: capability label + cluster label |
-| Vault key format? | `{org}_installation_id` (hyphens → underscores) |
-| Go version? | 1.26 (check `ascend-runner-onboarding/go.mod`) |
+| K8s manifests 在哪？ | `ascend-ci-deployment/{org}/{repo}/` |
+| ArgoCD Applications 在哪？ | `ascend-ci-argocd/applications/argocd/{cluster}/` |
+| 开通逻辑在哪？ | `ascend-runner-onboarding/internal/arcdeploy/` |
+| 新项目的 namespace？ | `{org-lower}-{repo-lower}` |
+| Runner 目录 (ARC < 0.14.0)？ | `linux-{arch}-{npu}-{count}` |
+| Runner 目录 (ARC >= 0.14.0)？ | `linux-{arch}-{npu}-{count}-{cluster_suffix}` |
+| ARC >= 0.14.0 标签？ | 必须有 2 个：capability + cluster |
+| Vault key 格式？ | `{org}_installation_id` |
 
 ---
 
@@ -211,95 +217,17 @@ Pod Template ConfigMap: {runner_prefix}-{count}  or  {runner_prefix}-{cluster_su
 
 ---
 
-## File Patterns — Where Everything Goes
+## File Patterns
 
-### `ascend-ci-deployment/{org}/{repo}/` layout
+> 详细目录结构见各子模块 CLAUDE.md：
+> - [ascend-ci-deployment](ascend-ci-deployment/CLAUDE.md) — `{org}/{repo}/` 布局
+> - [ascend-ci-argocd](ascend-ci-argocd/CLAUDE.md) — `applications/` 布局
 
-```
-{org}/{repo}/
-  config/                                   # Base Kustomize overlay
-    kustomization.yaml                      # Lists: namespace, pvc, rbac, secret, configmaps
-    namespace.yaml                          # metadata.name = {namespace}
-    local-storage-pvc.yaml                  # SFS Turbo or hostPath PVC
-    runner-pod-permission.yaml              # SA + Role + RoleBinding
-    github-token-secret.yaml                # Vault-backed SecretDefinition (PAT auth)
-    github-app-secret.yaml                  # Vault-backed SecretDefinition (GitHub App auth)
-    pre-execute-script-check-npu-configmap.yaml   # NPU check script (optional)
-    custom-runner-container-hook-pvc.yaml         # Hook PVC (optional, for legacy mode)
-    container-job-pod-template-{type}-{count}-configmap.yaml
-  config-{cluster}/                         # Cluster-specific Kustomize overlay
-    kustomization.yaml
-    ... (overrides)
-  linux-{arch}-{npu}-{count}/               # Helm chart = one runner scale set
-    Chart.yaml                              # depends on gha-runner-scale-set
-    Chart.lock
-    values.yaml                             # scaleSetLabels, resourceMeta, templates, metrics
-  linux-{arch}-{npu}-{count}-{suffix}/      # Cluster-suffixed variant (ARC >= 0.14.0)
-```
-
-### `ascend-ci-argocd/applications/` layout
-
-```
-applications/
-  argocd/{cluster}/                         # One dir per cluster
-    {org}-{repo}-config[-{cluster}].yaml    # Config Application (Kustomize, no helm)
-    {org}-{repo}-{runner_spec}.yaml         # Runner Application (Helm, has releaseName)
-    {infra}-{component}.yaml                # Infrastructure app (buildkitd, vault, etc.)
-  argocd-controller/                        # ARC controllers (one per cluster)
-    arc-controller-{cluster}.yaml
-  deploy/                                   # Infrastructure Helm charts / Kustomize
-    arc-controller-0.13.0/                  # ARC Helm chart (base version)
-    arc-controller-0.14.2/                  # ARC Helm chart (with clusterrole template)
-    arc-controller-for-cpu-node/            # CPU-only variant
-    buildkitd-server/chart/
-    smart-git-proxy/chart/
-    nginx-pypi-cache-new/
-    imagepullsecret-patch/
-    secret-manager/
-    vault/
-    scheduler-plugins/
-    scheduler-plugins-test/
-    prometheus/
-    custom-npu-exporter/
-    volcano-queue/
-    ...
-```
-
-### `ascend-ci-deployment/monitoring/` layout
-
-```
-monitoring/
-  base/                                     # SHARED — all clusters reference this
-    kustomization.yaml
-    namespace.yaml
-    monitoring-sa.yaml / monitoring-rbac.yaml / monitoring-clusterrole.yaml
-    prometheus-agent-configmap.yaml / prometheus-agent-deployment.yaml
-    prometheus-agent-secretdefinition.yaml
-    pushgateway-secret.yaml / cloud-aksk-secret.yaml
-    probe-configmap.yaml
-    cronjob-*.yaml (cert-expiry, cloud-account, github-probe, mirror-sync, sa-audit, shared-disk)
-  config-for-{cluster}/                     # Per-cluster PATCHES only (thin overlays)
-    kustomization.yaml                      # references ../../base
-    probe-configmap-patch.yaml
-    prometheus-agent-configmap-patch.yaml
-  prometheus/                               # Central Prometheus (remote-write receiver)
-  kube-state-metrics/                       # Helm chart
-  node-exporter/                            # Helm chart
-  pushgateway/                              # Helm chart
-```
-
-**Monitored clusters**: gy-003, gy-004, gy-005, gy-006, hk-001, infra-cn4-x86.
-
-> **Authoritative docs**: `monitoring/README.md` — architecture, data flow, probe metrics, alert rules, cronjob scheduling, troubleshooting, new-cluster onboarding procedure.
-
-**Monitoring images:**
-
-| Component | Image |
-|---|---|
-| Probe | `swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/ci-probe:1.0` |
-| Prometheus (agent + central) | `swr.cn-north-4.myhuaweicloud.com/opensourceway/prometheus:v3.11.3` |
-| Alertmanager | `swr.cn-north-4.myhuaweicloud.com/opensourceway/alertmanager:v0.32.1` |
-| kube-state-metrics | `swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/kube-state-metrics:v2.14.0` |
+**Monitoring** (`ascend-ci-deployment/monitoring/`):
+- `base/` — 共享基础配置（所有集群引用）
+- `config-for-{cluster}/` — 集群特定 patch
+- 监控集群: gy-003, gy-004, gy-005, gy-006, hk-001, infra-cn4-x86
+- 详见 `monitoring/README.md`
 
 ---
 
@@ -363,75 +291,7 @@ monitoring/
 
 ## `ascend-runner-onboarding` — Go Service Reference
 
-### Key Architecture Invariants
-
-1. **Vault BEFORE git push** — `gitops.go::Provision` writes Vault first. If reversed, ArgoCD syncs SecretDefinition pointing to non-existent Vault key → secrets-manager errors.
-2. **`DeriveNaming()` is single source of truth** — `render.go` line ~488. Both DryRun and GitOps provisioners call it. Namespace/dir/URL/secret all derived here.
-3. **Provisioner is an interface** — `DryRun` vs `GitOps`, selected by `DEPLOYMENT_REPO_DRY_RUN` env var.
-4. **Reference projects ARE templates** — copy + 4-5 string replacements, no template engine.
-5. **Allowlist hot-reload via mtime** — parse errors log ERROR but keep last-good snapshot.
-
-### State Machine (8 states)
-
-```
-new → pending (not on allowlist)
-new → provisioning → pr_pending → provisioned
-                   → failed
-                   → suspended (app paused)
-                   → deleted (uninstalled)
-                   → deprovision_failed
-```
-
-### Key Config Env Vars
-
-| Var | Default | Required |
-|---|---|---|
-| `GITHUB_APP_ID` | — | yes |
-| `GITHUB_APP_PRIVATE_KEY_PATH` | — | yes |
-| `GITHUB_APP_WEBHOOK_SECRET` | — | yes |
-| `DATABASE_URL` | — | yes (postgres:// → PG, else → SQLite) |
-| `DEPLOYMENT_REPO_URL` | — | production |
-| `ARGOCD_REPO_URL` | — | production |
-| `DEPLOYMENT_REPO_DRY_RUN` | `true` | — |
-| `VAULT_ADDR` | — | production (empty = disabled) |
-| `VAULT_ROLE_ID` / `VAULT_SECRET_ID` | — | if VAULT_ADDR set |
-| `REDIS_URL` | — | for multi-instance HA |
-| `ALLOWLIST_PATH` | `./config/allowlist.yaml` | — |
-| `REFERENCE_CONFIG_PATH` | `./config/reference-projects.yaml` | — |
-
-### API Routes
-
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/` | Landing page |
-| GET | `/healthz` | Health check |
-| GET | `/setup/callback` | Post-install setup |
-| GET | `/api/cluster-status` | Cluster probe status JSON |
-| POST | `/api/github/webhook` | GitHub App webhook (HMAC-SHA256, 1 MiB limit) |
-
-### DeriveNaming Rules (exact)
-
-```
-Input: accountLogin, accountType, repos[]
-
-TargetOrg  = strings.ToLower(accountLogin)
-TargetRepo = TargetOrg (if org-wide and no repos selected)
-             OR repos[0].split("/")[1], lowercased
-TargetDir  = TargetOrg + "/" + TargetRepo
-IsOrgWide  = accountType == "Organization" && len(repos) == 0
-
-Namespace      = TargetOrg
-githubConfigUrl = IsOrgWide ? "https://github.com/{rawLogin}" : "https://github.com/{rawLogin}/{TargetRepo}"
-SecretName     = "{TargetOrg}-{TargetRepo}-secret"
-PVCName        = "{TargetOrg}-{TargetRepo}-{safeCluster}"
-VaultKey       = "{TargetOrg}_installation_id"  (hyphens in org → underscores)
-```
-
-### Reference Projects Config
-
-File: `ascend-runner-onboarding/config/reference-projects.yaml`  
-Schema: NPU-centric v3.1 — 3 NPU types (310p, a2b3, a3), 11 clusters.  
-Reference project: always `vllm-project/vllm-ascend` for all NPU types.
+> 详见 [ascend-runner-onboarding/CLAUDE.md](ascend-runner-onboarding/CLAUDE.md)
 
 ---
 
